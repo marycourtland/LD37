@@ -12,6 +12,7 @@ module.exports = Play = function (_game) {
 Play.setContext = function(newContext) {
     // assert that the context has the right stuff 
     console.assert(!!newContext.Map);
+    console.assert(!!newContext.Room);
     Context = newContext;
 };
 
@@ -22,6 +23,7 @@ Play.lastClick = null; // in map coordinates
 
 Play.prototype = {
     preload: function() {
+        Context.Room.init();
         Context.Map.init();
     },
 

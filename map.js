@@ -1,22 +1,21 @@
 var xy = window.XY;
+var Room = require('./room')
 
 module.exports = Map = {};
-
 window.m = Map;
+
+// Tile keys
+var tiles = {
+    BLANK: 0,
+    WALL: 1,
+    MISC: 4
+}
 
 Map.cells = null; 
 Map.reload = false;
 Map.diffs = [];
 
-// INITIAL ROOM 5x5
-Map.initialRoom = [
-    xy(-2, -2), xy(-1, -2), xy(0, -2), xy(1, -2), xy(2, -2),
-    xy(-2, -1), xy(2, -1),
-    xy(-2, 0), xy(2, 0),
-    xy(-2, 1), xy(2, 1),
-    xy(-2, 2), xy(-1, 2), xy(0, 2), xy(1, 2), xy(2, 2),
-]
-
+// initial bounds
 Map.bounds = {
     // cardinal dirs
     w: -15,
@@ -39,13 +38,17 @@ Map.init = function() {
     self.iterX(function(x) {
         self.cells[x] = {};
         self.iterY(function(y) {
-            self.cells[x][y] = 0;
+            self.cells[x][y] = tiles.BLANK;
         })
     })
-    
 
-    self.initialRoom.forEach(function(xy) {
-        self.cells[xy.x][xy.y] = 1;
+    Room.getCoords().forEach(function(p) {
+        self.set(p.x, p.y, tiles.WALL)
+    })
+
+    // Subscribe to room changes
+    Room.on('teardown', 'teardown', function(data) {
+        self.set(data.coords.x, data.coords.y, tiles.BLANK);
     })
 
     self.reload = true;
@@ -55,26 +58,26 @@ Map.expand = function(direction) {
     var self = this;
     if (direction === 'w') {
         var newColumn = {};
-        self.iterY(function(y) { newColumn[y] = 4; })
+        self.iterY(function(y) { newColumn[y] = tiles.BLANK; })
         self.bounds.w -= 1;
         self.cells[self.bounds.w] = newColumn;
     }
     if (direction === 'e') {
         var newColumn = {};
-        self.iterY(function(y) { newColumn[y] = 4; })
+        self.iterY(function(y) { newColumn[y] = tiles.BLANK; })
         self.bounds.e += 1;
         self.cells[self.bounds.w] = newColumn;
     }
     if (direction === 'n') {
         self.bounds.n -= 1;
         self.iterX(function(x) {
-            self.cells[x][self.bounds.n] = 4;
+            self.cells[x][self.bounds.n] = tiles.BLANK;
         })
     }
     if (direction === 's') {
         self.bounds.s += 1;
         self.iterX(function(x) {
-            self.cells[x][self.bounds.s] = 4;
+            self.cells[x][self.bounds.s] = tiles.BLANK;
         })
     }
     self.reload = true;
