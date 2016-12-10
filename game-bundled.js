@@ -5,6 +5,7 @@ var View = require('./view');
 // view-independent modules
 var Context = {
     // require stuff
+    Map: require('./map')
 }
 
 window.game = {};
@@ -13,30 +14,143 @@ window.onload = function() {
     View.load(Context);
 }
 
-},{"./view":3}],2:[function(require,module,exports){
-// Tree sprites are from
-// http://opengameart.org/content/tree-collection-v26-bleeds-game-art
-// Bleed - http://remusprites.carbonmade.com/
+},{"./map":2,"./view":4}],2:[function(require,module,exports){
+var xy = window.XY;
 
-module.exports = AssetData = {
-    black: {
-        url:     'images/black.png',
-    },
-    white: {
-        url:     'images/white.png',
-    },
-    blue: {
-        url:     'images/blue.png',
-    },
-    red: {
-        url:     'images/red.png',
-    },
-    green: {
-        url:     'images/green.png',
+module.exports = Map = {};
+
+window.m = Map;
+
+Map.cells = null; 
+Map.reload = false;
+Map.diffs = [];
+
+// INITIAL ROOM 5x5
+Map.initialRoom = [
+    xy(-2, -2), xy(-1, -2), xy(0, -2), xy(1, -2), xy(2, -2),
+    xy(-2, -1), xy(2, -1),
+    xy(-2, 0), xy(2, 0),
+    xy(-2, 1), xy(2, 1),
+    xy(-2, 2), xy(-1, 2), xy(0, 2), xy(1, 2), xy(2, 2),
+]
+
+Map.bounds = {
+    // cardinal dirs
+    w: -15,
+    e: 15,
+    n: -5,
+    s: 5
+}
+
+Map.size = function() {
+    return xy(this.bounds.e - this.bounds.w, this.bounds.s - this.bounds.n)
+}
+
+Map.offset = function() {
+    return xy(this.bounds.w, this.bounds.n)
+}
+
+Map.init = function() {
+    var self = this;
+    self.cells = {}; 
+    self.iterX(function(x) {
+        self.cells[x] = {};
+        self.iterY(function(y) {
+            self.cells[x][y] = 0;
+        })
+    })
+    
+
+    self.initialRoom.forEach(function(xy) {
+        self.cells[xy.x][xy.y] = 1;
+    })
+
+    self.reload = true;
+}
+
+Map.expand = function(direction) {
+    var self = this;
+    if (direction === 'w') {
+        var newColumn = {};
+        self.iterY(function(y) { newColumn[y] = 4; })
+        self.bounds.w -= 1;
+        self.cells[self.bounds.w] = newColumn;
+    }
+    if (direction === 'e') {
+        var newColumn = {};
+        self.iterY(function(y) { newColumn[y] = 4; })
+        self.bounds.e += 1;
+        self.cells[self.bounds.w] = newColumn;
+    }
+    if (direction === 'n') {
+        self.bounds.n -= 1;
+        self.iterX(function(x) {
+            self.cells[x][self.bounds.n] = 4;
+        })
+    }
+    if (direction === 's') {
+        self.bounds.s += 1;
+        self.iterX(function(x) {
+            self.cells[x][self.bounds.s] = 4;
+        })
+    }
+    self.reload = true;
+}
+
+Map.iterY = function(callback) {
+    for (var y = this.bounds.n; y < this.bounds.s; y++) {
+        callback(y);
     }
 }
 
+Map.iterX = function(callback) {
+    for (var x = this.bounds.w; x < this.bounds.e; x++) {
+        callback(x);
+    }
+}
+
+Map.set = function(x, y, index) {
+    if (this.isOOB(x, y)) return null;
+    this.cells[x][y] = index;
+    this.diffs.push({x:x, y:y})
+}
+
+Map.get = function(x, y) {
+    if (this.isOOB(x, y)) return null;
+    return this.cells[x][y];
+}
+
+Map.isOOB = function(x, y) {
+    return x < this.bounds.w || x > this.bounds.e || y < this.bounds.n || y > this.bounds.s;
+}
+
+
+Map.getCSV = function() {
+    var self = this;
+    var rows = [];
+    self.iterY(function(y) {
+        var row = [];
+        self.iterX(function(x) {
+            row.push(self.cells[x][y]);
+        })
+        rows.push(row);
+    })
+    return rows.map(function(row) { return row.join(',')}).join('\n')
+}
+
+Map.upToDate = function() {
+    this.diffs = [];
+    this.reload = false;
+}
+
 },{}],3:[function(require,module,exports){
+module.exports = AssetData = {
+    tiles: {
+        url: 'images/tiles.png' 
+    },
+}
+
+},{}],4:[function(require,module,exports){
 module.exports = basic = {};
 
 basic.load = function(Context) {
@@ -54,7 +168,7 @@ basic.load = function(Context) {
     game.state.start('Boot');
 }
 
-},{"./states":6}],4:[function(require,module,exports){
+},{"./states":7}],5:[function(require,module,exports){
 var Settings = window.Settings;
 var AssetData = require('../asset_data');
 
@@ -87,7 +201,7 @@ Boot.prototype = {
     }
 }
 
-},{"../asset_data":2}],5:[function(require,module,exports){
+},{"../asset_data":3}],6:[function(require,module,exports){
 var game;
 
 module.exports = End = function (_game) { 
@@ -103,7 +217,7 @@ End.prototype = {
     },
 };
 
-},{}],6:[function(require,module,exports){
+},{}],7:[function(require,module,exports){
 module.exports = GameStates = {
     Boot: require('./boot.js'),
     Menu: require('./menu.js'),
@@ -111,7 +225,7 @@ module.exports = GameStates = {
     End:  require('./end.js'),
 }
 
-},{"./boot.js":4,"./end.js":5,"./menu.js":7,"./play.js":8}],7:[function(require,module,exports){
+},{"./boot.js":5,"./end.js":6,"./menu.js":8,"./play.js":9}],8:[function(require,module,exports){
 var game;
 
 module.exports = Menu = function (_game) { 
@@ -127,8 +241,8 @@ Menu.prototype = {
     },
 };
 
-},{}],8:[function(require,module,exports){
-var XY = window.XY;
+},{}],9:[function(require,module,exports){
+var xy = window.XY;
 var Settings = window.Settings;
 var AssetData = require('../asset_data');
 var game;
@@ -141,22 +255,32 @@ module.exports = Play = function (_game) {
 
 Play.setContext = function(newContext) {
     // assert that the context has the right stuff 
-    // console.assert(!!newContext.Map);
+    console.assert(!!newContext.Map);
     Context = newContext;
 };
 
+Play.map = null;
+Play.mapLayer = null;
+Play.cursorSprite = null;
+Play.lastClick = null; // in map coordinates
+
 Play.prototype = {
     preload: function() {
-        // init any non-view modules from Context
+        Context.Map.init();
     },
 
     create: function () {
         console.log('Game state: Play');
-        //game.add.tileSprite(0, 0, Settings.gameDims.x, Settings.gameDims.y, 'background');
+        refreshMap();
+        Play.cursorSprite = game.add.sprite(0, 0)
+        window.c = Play.cursorSprite;
+        game.camera.follow(Play.cursorSprite, Phaser.Camera.FOLLOW_LOCKON, 0.8, 0.8);
+        game.input.onDown.add(onDown)
+
     },
 
     update: function () {
-        checkPlayerInput();
+        checkPlayerCursor();
     },
     render: function () {
         debugText();
@@ -167,7 +291,10 @@ function debugText() {
     var lines = [
         'GAME',
         '  width:  ' + window.game.width,
-        '  height: ' + window.game.height
+        '  height: ' + window.game.height,
+        JSON.stringify(xy(Play.cursorSprite.x, Play.cursorSprite.y)),
+        JSON.stringify(Play.lastClickPre),
+        JSON.stringify(Play.lastClick)
     ]
 
     var color = "#FFF";
@@ -177,8 +304,60 @@ function debugText() {
         game.debug.text(lines[line], 2, (line + 1) * lineheight, color)
     }
 }
-function checkPlayerInput() {
+
+function refreshMap() {
+    if (Context.Map.reload) {
+        if (Play.map) Play.map.destroy();
+        if (Play.mapLayer) Play.mapLayer.destroy();
+
+        var size = Context.Map.size();
+        game.cache.addTilemap('map', null, Context.Map.getCSV(), Phaser.Tilemap.CSV);
+        Play.map = game.add.tilemap('map', Settings.cellDims.x, Settings.cellDims.y);
+        Play.map.addTilesetImage('tiles');
+
+        Play.mapLayer = Play.map.createLayer(0);
+        Play.mapLayer.resizeWorld();
+    }
+    else {
+        Context.Map.diffs.forEach(function(diff) {
+            var tile = Context.Map.get(diff.x, diff.y);
+            var x = diff.x - Context.Map.offset().x;
+            var y = diff.y - Context.Map.offset().y;
+            Play.map.putTile(tile, x, y, Play.mapLayer )
+        })
+    }
+    Context.Map.upToDate();
 }
 
+window.r = refreshMap;
 
-},{"../asset_data":2}]},{},[1]);
+function checkPlayerCursor() {
+    // Cursor sprite follows the pointer
+    Play.cursorSprite.x = game.input.activePointer.position.x;
+    Play.cursorSprite.y = game.input.activePointer.position.y;
+    window.t = Play.map.getTileWorldXY(Play.cursorSprite.x, Play.cursorSprite.y)
+}
+
+function onDown(pointer, event) {
+    // convert to pixels and factor in camera 
+    var dims = Settings.cellDims;
+    var offset = Context.Map.offset();
+    offset.x *= dims.x;
+    offset.y *= dims.y;
+    offset.x += game.camera.view.x;
+    offset.y += game.camera.view.y;
+
+    Play.lastClick = xy(
+        Math.floor((pointer.position.x + offset.x) / dims.x),
+        Math.floor((pointer.position.y + offset.y) / dims.y)
+    )
+
+    onTileSelect(Play.lastClick);
+}
+
+function onTileSelect(coords) {
+    Context.Map.set(coords.x, coords.y, 2);
+    refreshMap();
+}
+
+},{"../asset_data":3}]},{},[1]);

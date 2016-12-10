@@ -4,6 +4,7 @@ var View = require('./view');
 // view-independent modules
 var Context = {
     // require stuff
+    Map: require('./map')
 }
 
 window.game = {};
