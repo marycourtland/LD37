@@ -57,8 +57,8 @@ Map.bounds = {
     // cardinal dirs
     w: -10,
     e: 10,
-    n: -10,
-    s: 10 
+    n: -6,
+    s: 6 
 }
 
 Map.size = function() {
@@ -889,7 +889,7 @@ Play.prototype = {
         //checkCamera();
     },
     render: function () {
-        debugText();
+        //debugText();
     }
 };
 

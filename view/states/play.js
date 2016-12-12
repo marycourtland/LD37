@@ -82,7 +82,7 @@ Play.prototype = {
         //checkCamera();
     },
     render: function () {
-        debugText();
+        //debugText();
     }
 };
 
