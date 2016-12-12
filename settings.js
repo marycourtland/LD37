@@ -18,7 +18,7 @@ Settings.gameDims = {x: 4000, y: 4000}; // pixels
 Settings.cellDims = {x: 40, y:40}; //pixels per cell
 Settings.cameraDeadzone = 0.4;
 
-Settings.playerStart = {x: 3, y: 3}
+Settings.numBlobs = 20;
 
 // TEST SETTINGS - smaller map etc
 if (Settings.mode === 'test') {

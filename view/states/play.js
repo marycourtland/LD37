@@ -1,5 +1,6 @@
 var xy = window.XY;
 var Settings = window.Settings;
+var Utils = require('../../utils') 
 var AssetData = require('../asset_data');
 var game;
 
@@ -11,6 +12,7 @@ module.exports = Play = function (_game) {
 
 Play.setContext = function(newContext) {
     // assert that the context has the right stuff 
+    console.assert(!!newContext.Player);
     console.assert(!!newContext.Map);
     console.assert(!!newContext.Room);
     Context = newContext;
@@ -29,21 +31,61 @@ Play.prototype = {
 
     create: function () {
         console.log('Game state: Play');
+        game.stage.backgroundColor = '#ffff88';
         refreshMap();
+
+        var blobs = [];
+        for (var i = 0; i < Settings.numBlobs; i++) {
+            var p = Map.randomTile();
+            var coords = getWorldCoordsFromMap(p); // meh
+            blobs.push(this.createBlob(coords.x, coords.y));
+        }
+
+        this.createBlob(350, 100);
+        this.createBlob(400, 100);
+        this.createBlob(450, 100);
+        this.createBlob(500, 100);
+
+        // camera
         Play.cursorSprite = game.add.sprite(0, 0)
-        window.c = Play.cursorSprite;
         game.camera.follow(Play.cursorSprite, Phaser.Camera.FOLLOW_LOCKON, 0.8, 0.8);
+
+        // input
         game.input.onDown.add(onDown)
 
+        // literally don't know how else to get Phaser to detect a solo shift key.
+        window.addEventListener('keydown', function(e) {
+            if (e.keyCode === Phaser.KeyCode.SHIFT) Player.shiftKey = true;
+        })
+        window.addEventListener('keyup', function(e) {
+            if (e.keyCode === Phaser.KeyCode.SHIFT) Player.shiftKey = false;
+        })
+    },
+
+    createBlob: function(x, y) {
+        var fps = 50;
+        var numFrames = 26;
+        var blob = game.add.sprite(x, y, 'blob');
+        blob.animations.add('blobbing');
+
+        // delay by an integral number of frames
+        var phase = Utils.randInt(0, numFrames);
+        var t = 1000/fps;
+        setTimeout(function() {
+            blob.animations.play('blobbing', fps, true);
+        }, phase * t)
+    
     },
 
     update: function () {
         checkPlayerCursor();
+        //checkCamera();
     },
     render: function () {
         debugText();
     }
 };
+
 
 function debugText() {
     var lines = [
@@ -52,7 +94,8 @@ function debugText() {
         '  height: ' + window.game.height,
         JSON.stringify(xy(Play.cursorSprite.x, Play.cursorSprite.y)),
         JSON.stringify(Play.lastClickPre),
-        JSON.stringify(Play.lastClick)
+        JSON.stringify(Play.lastClick),
+        JSON.stringify(Player.hoveredCoords)
     ]
 
     var color = "#FFF";
@@ -78,7 +121,7 @@ function refreshMap() {
     }
     else {
         Context.Map.diffs.forEach(function(diff) {
-            var tile = Context.Map.get(diff.x, diff.y);
+            var tile = Context.Map.getViewTile(diff);
             var x = diff.x - Context.Map.offset().x;
             var y = diff.y - Context.Map.offset().y;
             Play.map.putTile(tile, x, y, Play.mapLayer )
@@ -89,31 +132,55 @@ function refreshMap() {
 
 window.r = refreshMap;
 
+
+function checkCamera() {
+    var speed = 3;
+
+    //camera deadzone
+    var deadzone = (1 - Settings.cameraDeadzone)/2, w = game.width, h = game.height;
+    var dx = game.input.activePointer.position.x / w;
+    var dy = game.input.activePointer.position.y / h;
+
+    if (dx > deadzone && dx < 1-deadzone) return;
+
+    if (dx < deadzone) game.camera.x -= speed;
+    if (dx > 1-deadzone) game.camera.x += speed;
+    if (dy < deadzone) game.camera.y -= speed;
+    if (dy > 1-deadzone) game.camera.y += speed;
+
+    //game.camera.deadzone = Phaser.Rectangle(
+    //    dz * w, (1 - dz) * w,
+    //    dz * h, (1 - dz) * h
+    //)
+}
+
 function checkPlayerCursor() {
     // Cursor sprite follows the pointer
     Play.cursorSprite.x = game.input.activePointer.position.x;
     Play.cursorSprite.y = game.input.activePointer.position.y;
     window.t = Play.map.getTileWorldXY(Play.cursorSprite.x, Play.cursorSprite.y)
+    Player.hovers(getCoordsFromEntity(game.input.activePointer, true));
+    refreshMap();
 }
 
 function onDown(pointer, event) {
-    // convert to pixels and factor in camera 
-    var dims = Settings.cellDims;
-    var offset = Context.Map.offset();
-    offset.x *= dims.x;
-    offset.y *= dims.y;
-    offset.x += game.camera.view.x;
-    offset.y += game.camera.view.y;
-
-    Play.lastClick = xy(
-        Math.floor((pointer.position.x + offset.x) / dims.x),
-        Math.floor((pointer.position.y + offset.y) / dims.y)
-    )
-
-    onTileSelect(Play.lastClick);
+    Play.lastClick = getCoordsFromEntity(game.input.activePointer);
+    Context.Player.selects(Play.lastClick);
+    refreshMap();
 }
 
-function onTileSelect(coords) {
-    Context.Map.set(coords.x, coords.y, 2);
-    refreshMap();
+function getCoordsFromEntity(entity) {
+    var offset = Context.Map.offset();
+    return xy(
+        Math.floor(entity.worldX / Settings.cellDims.x) + offset.x,
+        Math.floor(entity.worldY / Settings.cellDims.y) + offset.y
+    )
+}
+
+function getWorldCoordsFromMap(p) {
+    var offset = Context.Map.offset();
+    return xy(
+        (p.x - offset.x) * Settings.cellDims.x,
+        (p.y - offset.y) * Settings.cellDims.y
+    )
 }

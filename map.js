@@ -1,5 +1,7 @@
 var xy = window.XY;
 var Room = require('./room')
+var TileSelection = require('./tile-selection')
+window.ts = TileSelection
 
 module.exports = Map = {};
 window.m = Map;
@@ -7,8 +9,24 @@ window.m = Map;
 // Tile keys
 var tiles = {
     BLANK: 0,
-    WALL: 1,
-    MISC: 4
+    FLOOR: 1,
+    BROWN: 2,
+    DARK: 3,
+    SELECTED: 4,
+    WALL1100: 5,
+    WALL0011: 6,
+    WALL1010: 7,
+    WALL0110: 8,
+    WALL0101: 9,
+    WALL1001: 10,
+    WALL1000: 11,
+    WALL0010: 12,
+    WALL0100: 13,
+    WALL0001: 14,
+    WALL0000: 15,
+    
+    // fake tile index
+    WALL: 999
 }
 
 Map.cells = null; 
@@ -18,10 +36,10 @@ Map.diffs = [];
 // initial bounds
 Map.bounds = {
     // cardinal dirs
-    w: -15,
-    e: 15,
-    n: -5,
-    s: 5
+    w: -10,
+    e: 10,
+    n: -10,
+    s: 10 
 }
 
 Map.size = function() {
@@ -30,6 +48,12 @@ Map.size = function() {
 
 Map.offset = function() {
     return xy(this.bounds.w, this.bounds.n)
+}
+
+Map.randomTile = function() {
+    var x = utils.randInt(this.bounds.w, this.bounds.e);
+    var y = utils.randInt(this.bounds.n, this.bounds.s);
+    return xy(x, y);
 }
 
 Map.init = function() {
@@ -49,6 +73,18 @@ Map.init = function() {
     // Subscribe to room changes
     Room.on('teardown', 'teardown', function(data) {
         self.set(data.coords.x, data.coords.y, tiles.BLANK);
+    })
+
+    Room.on('build', 'build', function(data) {
+        self.set(data.coords.x, data.coords.y, tiles.WALL);
+    })
+
+    TileSelection.on('select', 'select', function(data) {
+        self.diffs.push(data.coords);
+    })
+
+    TileSelection.on('deselect', 'select', function(data) {
+        self.diffs.push(data.coords);
     })
 
     self.reload = true;
@@ -106,8 +142,35 @@ Map.get = function(x, y) {
     return this.cells[x][y];
 }
 
+Map.getWENS = function(p) {
+    //West, East, North, South
+    var coordsWENS = [
+        xy(-1, 0),
+        xy(1, 0),
+        xy(0, -1),
+        xy(0, 1),
+    ]
+    return coordsWENS.map(function(dp) {
+        var p2 = dp.add(p);
+        return Map.get(p2.x, p2.y);
+    })
+}
+
+Map.getWallTile = function(p) {
+    // only Room knows the real wall structure
+    var neighborsWENS = Room.getAdjoiningCoordinatesWENS(p);
+    return tiles['WALL' + neighborsWENS]
+}
+
 Map.isOOB = function(x, y) {
-    return x < this.bounds.w || x > this.bounds.e || y < this.bounds.n || y > this.bounds.s;
+    return x <= this.bounds.w || x >= this.bounds.e || y < this.bounds.n || y >= this.bounds.s;
+}
+
+Map.getViewTile = function(p) {
+    if (TileSelection.isSelected(p)) return tiles.SELECTED;
+    var tile = this.get(p.x, p.y);
+    if (tile === tiles.WALL) tile = Map.getWallTile(p);
+    return tile;
 }
 
 
@@ -117,11 +180,12 @@ Map.getCSV = function() {
     self.iterY(function(y) {
         var row = [];
         self.iterX(function(x) {
-            row.push(self.cells[x][y]);
+            row.push(self.getViewTile(xy(x, y)));
         })
         rows.push(row);
     })
-    return rows.map(function(row) { return row.join(',')}).join('\n')
+    window.csv = rows.map(function(row) { return row.join(',')}).join('\n')
+    return window.csv;
 }
 
 Map.upToDate = function() {

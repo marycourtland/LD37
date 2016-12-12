@@ -22,6 +22,10 @@ WallSegment.prototype.isEnd = function() { return !this.connection1 || !this.con
 WallSegment.prototype.isFloating = function() { return !this.connection1 && !this.connection2; }
 
 WallSegment.prototype.contains = function(p1, p2) {
+    if (!p2) {
+        // just checking a single point
+        return xy(p1).isBetween(this.end1, this.end2);
+    }
     if (this.dir === VERTICAL) {
         return p1.x === this.end1.x && p1.x === p2.x;
     }
@@ -141,6 +145,49 @@ WallSegment.prototype.destroy = function() {
         this.connection2.refreshLength();
     }
     return this;
+}
+
+WallSegment.prototype.getPreviousCoordinate = function(p) {
+    // ASSUME THIS WALL CONTAINS P.
+    p = xy(p);
+    var d = this.d();
+    var p_previous = p.subtract(d);
+    if (this.end1.eq(p)) {
+        if (!this.connection1) {
+            p_previous = null;
+        }
+        else {
+            // get p1 from the adjoining wall
+            p_previous = this.connection1.getPreviousCoordinate(p);
+        }
+    }
+    return p_previous;
+}
+
+WallSegment.prototype.getNextCoordinate = function(p) {
+    // ASSUME THIS WALL CONTAINS P.
+    p = xy(p);
+    var d = this.d();
+    var p_next = p.add(d);
+    if (this.end2.eq(p)) {
+        if (!this.connection2) {
+            p_next = null;
+        }
+        else {
+            // get p1 from the adjoining wall
+            p_next = this.connection2.getNextCoordinate(p);
+        }
+    }
+    return p_next;
+}
+
+WallSegment.prototype.getAdjoiningCoords = function(p) {
+    var p1 = this.getPreviousCoordinate(p);
+    var p2 = this.getNextCoordinate(p);
+    var coords = [];
+    if (p1) coords.push(p1);
+    if (p2) coords.push(p2);
+    return coords;
 }
 
 WallSegment.prototype.iterCoords = function(callback, ignoreEnd2) {
