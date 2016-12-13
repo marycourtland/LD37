@@ -28,10 +28,10 @@ window.m = Map;
 // Tile keys
 var tiles = {
     BLANK: 0,
-    FLOOR: 1,
-    BROWN: 2,
-    DARK: 3,
-    SELECTED: 4,
+    GRAY: 1,
+    FLOOR: 2,
+    SELECTED: 3,
+    ORANGE: 4,
     WALL1100: 5,
     WALL0011: 6,
     WALL1010: 7,
@@ -96,6 +96,14 @@ Map.init = function() {
 
     Room.on('build', 'build', function(data) {
         self.set(data.coords.x, data.coords.y, tiles.WALL);
+    })
+
+    Room.on('enclose', 'enclose', function(data) {
+        self.set(data.coords.x, data.coords.y, tiles.FLOOR);
+    })
+
+    Room.on('release', 'release', function(data) {
+        self.set(data.coords.x, data.coords.y, tiles.BLANK);
     })
 
     TileSelection.on('select', 'select', function(data) {
@@ -220,23 +228,31 @@ var xy = window.XY;
 module.exports = Player = {};
 window.p = Player;
 
-// circumvent phaser to get shift+click to work
-Player.shiftKey = false;
+Player.init = function() {
+    Player.done = false;
+    Player.enclosedTiles = [];
 
-// Tile selection
-Player.hoveredCoords = null;
-Player.selectedCoords = null;
-Player.selectedTileIndex = null;
+    // circumvent phaser to get shift+click to work
+    Player.shiftKey = false;
+    Player.justShifted = false;
+
+    // Tile selection
+    Player.hoveredCoords = null;
+    Player.selectedCoords = null;
+    Player.selectedTileIndex = null;
+}
 
 Player.hovers = function(coords) {
-    if (xy(coords).eq(this.hoveredCoords)) return; 
+    if (!this.justShifted && xy(coords).eq(this.hoveredCoords)) return; 
+    this.justShifted = false;
     this.hoveredCoords = coords;
     if (this.mode) this.modes[this.mode].onTileHover(coords)
 }
 
 Player.selects = function(coords) {
-    if (xy(coords).eq(this.selectedCoords)) return; 
-
+    if (!this.justShifted && xy(coords).eq(this.selectedCoords)) return; 
+    this.justShifted = false;
+    this.selectedCoords = coords;
     if (this.mode) this.modes[this.mode].onTileSelect(coords)
 }
 
@@ -286,7 +302,6 @@ Player.modes.teardown = {
         // DO NOT CALL UNLESS ACTUALLY FINISHED.
         console.assert(this.endpoints.length === 2);
         Room.iterCoords(this.endpoints, function(p) {
-            console.log('selecting:', p)
             TileSelection.select(p);
 
         })
@@ -319,7 +334,7 @@ Player.modes.confirmTeardown = {
 Player.modes.build = {
     hoveredTile: null,
     targetTile: null,
-    wallCompletion: null,
+    wallCompletion: null, 
 
     start: function() {
     
@@ -328,24 +343,6 @@ Player.modes.build = {
         if (!!this.hoveredTile) TileSelection.deselect(this.hoveredTile);
         if (!!this.targetTile) TileSelection.deselect(this.targetTile);
 
-        if (Player.shiftKey) {
-            // SPECIAL CASE: Offer for the player to complete the wall
-            wallCompletions = Room.getContainingAlignedEnds(coords);
-            if (wallCompletions.length > 0) {
-                this.wallCompletion = this.wallCompletions[0] // if there are multiple walls... then meh.
-                this.wallCompletion.iterCoords(function(p) {
-                    TileSelection.select(p);
-                
-                })
-
-            }
-            return;
-        }
-        else if (!!this.wallCompletion) {
-            this.wallCompletion.iterCoords(function(p) { TileSelection.deselect(p); })
-            this.wallCompletion = null;
-        }
-
         var nearestEnd = Room.getNearestAlignedEnd(coords);
         if (!nearestEnd) {
             this.targetTile = null;
@@ -353,40 +350,77 @@ Player.modes.build = {
         }
         this.hoveredTile = coords;
         this.targetTile = nearestEnd;
+
+        if (Player.shiftKey) {
+            // SPECIAL CASE: Offer for the player to complete the wall
+            wallCompletions = Room.getContainingAlignedEnds(coords);
+            if (wallCompletions.length > 0) {
+                this.wallCompletion = wallCompletions[0] // if there are multiple walls... then meh.
+                var coords = [this.wallCompletion[0].end, this.wallCompletion[1].end]
+                Room.iterCoords(coords, function(p) {
+                    TileSelection.select(p);
+                })
+            }
+            return;
+        }
+        else if (!!this.wallCompletion) {
+            var coords = [this.wallCompletion[0].end, this.wallCompletion[1].end]
+            Room.iterCoords(coords, function(p) { TileSelection.deselect(p); })
+            this.wallCompletion = null;
+        }
+
         TileSelection.select(this.targetTile);
         TileSelection.select(this.hoveredTile);
     },
     onTileSelect: function(coords) {
-        if (!this.targetTile) return;
-        TileSelection.select(coords);
+        if (Player.shiftKey && !!this.wallCompletion) {
+            Player.modes.confirmBuild.tile1 = this.wallCompletion[0].end;
+            Player.modes.confirmBuild.tile2 = this.wallCompletion[1].end;
+            Player.modes.confirmBuild.wallCompletion = this.wallCompletion;
+        }
+        else {
+            if (!this.targetTile) return;
+            TileSelection.select(coords);
+            Player.modes.confirmBuild.tile1 = this.targetTile;
+            Player.modes.confirmBuild.tile2 = this.hoveredTile;
+            Player.modes.confirmBuild.wallCompletion = null;
+        }
         
-        Player.modes.confirmBuild.tile1 = this.targetTile;
-        Player.modes.confirmBuild.tile2 = this.hoveredTile;
         Player.setMode('confirmBuild')
     },
     cleanup: function() {
         this.hoveredTile = null;
         this.targetTile = null;
-        this.wallCompletions = [];
+        this.wallCompletion = null;
     }
 }
 
 Player.modes.confirmBuild = {
     tile1: null,
     tile2: null,
+    wallCompletion: null,
     start: function() {
         // TODO: confirm
         this.doItNow();
     },
     doItNow: function() {
-        Room.build(this.tile1, this.tile2);
-        TileSelection.deselect(this.tile1);
-        TileSelection.deselect(this.tile2);
+        Room.build(this.tile1, this.tile2, this.wallCompletion);
+        TileSelection.deselectAll();
+
+        // Check for closed room 
+        if (Room.isClosed()) {
+            Player.done = true;
+            //Room.stats.enclosedTiles.forEach(function(t) { TileSelection.select(t); });
+        }
+
         Player.setMode('build');
+
+
     },
     cleanup: function() {
         this.tile1 = null;
         this.tile2 = null;
+        this.wallCompletion = null;
     }
 
 }
@@ -410,19 +444,26 @@ var WallSegment = require('./wall')
 var utils = require('./utils')
 window.wall = WallSegment;
 
+var Map = null;
+
 module.exports = Room = {};
 window.room = Room;
 
 Events.init(Room);
 
-// for debugging
-window.f = function (xy) { console.log(JSON.stringify(xy)); }
-
 Room.walls = [];
-
 Room.alignedEnds = {H: [], V: []} // horizontal, vertical
 
+Room.stats = {
+    closed: false,
+    length: 0,
+    enclosedTiles: [],
+}
+
 Room.init = function() {
+    // meh
+    Map = require('./map')
+
     // INIT WITH A 5x5 ROOM
     var wall1 = new WallSegment(xy(-2, -2), xy(-2, 2));
     var wall2 = new WallSegment(xy(-2, 2), xy(2, 2));
@@ -432,6 +473,7 @@ Room.init = function() {
     wall1.connectTo(wall2).connectTo(wall3).connectTo(wall4);
     this.walls = [wall1, wall2, wall3, wall4]
     this.updateAlignedEnds();
+    this.refreshStats();
 }
 
 Room.totalLength = function() {
@@ -479,8 +521,7 @@ Room.tearDown = function(p1, p2) {
     this.walls.forEach(function(w) { if (w.contains(p1, p2)) wall = w; })
     if (!wall) return null;
 
-    console.group()
-    console.log('DEBUG TEARDOWN')
+    console.group('DEBUG TEARDOWN')
     console.log('Pre teardown endpoints:', JSON.stringify(wall.end1), JSON.stringify(wall.end2))
 
     var newWall = wall.tearDown(p1, p2);
@@ -496,6 +537,8 @@ Room.tearDown = function(p1, p2) {
         self.emit('teardown', {coords: p})
     })
 
+    this.refreshStats();
+
     console.log('Tore down:', JSON.stringify(p1), JSON.stringify(p2))
     console.log('Old wall:')
     wall.iterCoords(f)
@@ -506,7 +549,7 @@ Room.tearDown = function(p1, p2) {
     console.groupEnd();
 }
 
-Room.build = function(pWall, pNew) {
+Room.build = function(pWall, pNew, wallCompletion) {
     var walls = Room.getWallsContaining(pWall);
     console.assert(walls.length === 1);
     var oldWall = walls[0];
@@ -514,14 +557,36 @@ Room.build = function(pWall, pNew) {
     // create the endpoints in the right order
     var newWall = (!oldWall.connection2) ? new WallSegment(pWall, pNew) : new WallSegment(pNew, pWall);
     oldWall.connectTo(newWall);
+
+    if (!!wallCompletion) {
+        newWall.connectTo(wallCompletion[1].wall);
+    }
+
+    var connection1 = newWall.connection1; // in case newWall gets collapsed
     this.walls.push(newWall);
 
+    this.collapseWalls();
     this.updateAlignedEnds();
+
+    if (newWall.destroyed) newWall = connection1;
 
     var self = this;
     newWall.iterCoords(function(p) {
         self.emit('build', {coords: p})
     })
+
+    this.refreshStats();
+}
+
+Room.collapseWalls = function() {
+    // If there are, say, 2 vertical walls in a row, then combine them into one.
+    var collapses = this.walls.filter(function(w) { return w.isContinuation(); })
+
+    collapses.forEach(function(w) {
+        w.collapse();
+    })
+
+    this.walls = this.walls.filter(function(w) { return !w.destroyed; })
 }
 
 // There might be multiple walls containing the point
@@ -573,37 +638,43 @@ Room.getNearestAlignedEnd = function(p) {
 Room.updateAlignedEnds = function() {
     this.alignedEnds.H = [];
     this.alignedEnds.V = [];
-    var ends = this.getUnconnectedEnds().map(function(item) { return item.end; })
+    var ends = this.getUnconnectedEnds();
     var X = {};
     var Y = {};
     var self = this;
 
-    ends.forEach(function(e) {
+    ends.forEach(function(item) {
+        var e = item.end;
         // check vertical
-        if (!(e.x in X)) { X[e.x] = [e]; }
+        if (!(e.x in X)) { X[e.x] = [item]; }
         else {
-            X[e.x].forEach(function(end2) { self.alignedEnds.V.push([e, end2]); })
-            X[e.x].push(e);
+            X[e.x].forEach(function(end2_item) { self.alignedEnds.V.push([item, end2_item]); })
+            X[e.x].push(item);
         }
 
         // check horizontal
-        if (!(e.y in Y)) { Y[e.y] = [e]; }
+        if (!(e.y in Y)) { Y[e.y] = [item]; }
         else {
-            Y[e.y].forEach(function(end2) { self.alignedEnds.H.push([e, end2]); })
-            Y[e.y].push(e);
+            Y[e.y].forEach(function(end2_item) { self.alignedEnds.H.push([item, end2_item]); })
+            Y[e.y].push(item);
         }
     })
 }
 
 Room.getContainingAlignedEnds = function(p) {
     p = xy(p);
-    var ouput = []; 
+    var output = []; 
     this.alignedEnds.H.forEach(function(pair) {
-        if (p.isBetween(pair[0], pair[1])) output.push(pair);
+        if (p.isBetween(pair[0].end, pair[1].end)) output.push(pair);
     })
-    this.alignedEnds.V.forEach(function(pair) {
-        if (p.isBetween(pair[0], pair[1])) output.push(pair);
+   this.alignedEnds.V.forEach(function(pair) {
+        if (p.isBetween(pair[0].end, pair[1].end)) output.push(pair);
     })
+
+    // returns:
+    // [
+    //   [ {wall:_, end:_}, {wall:_, end:_}]
+    // ]
     return output;
     
 }
@@ -634,7 +705,57 @@ Room.getAdjoiningCoordinatesWENS = function(p) {
     return wens.join('');
 }
 
-},{"./utils":6,"./wall":14}],5:[function(require,module,exports){
+Room.isClosed = function() {
+    return this.getUnconnectedEnds().length === 0;
+}
+
+Room.getEnclosedTiles = function() {
+    if (!this.isClosed()) return [];
+
+    var enclosed = [];
+    for (var x = Map.bounds.w; x < Map.bounds.e; x++) {
+        // Scan the column to get tiles in between the walls
+        var inside = false;
+        for (var y = Map.bounds.n; y < Map.bounds.s; y++) {
+            var p = xy(x, y);
+            var currentWalls = Room.getWallsContaining(p);
+            var verticalWalls = currentWalls.filter(function(wall) { return wall.dir === 'VERTICAL'; })
+            var horizontalWalls = currentWalls.filter(function(wall) { return wall.dir === 'HORIZONTAL'; })
+
+            // this part functions to 'collapse' two horizontals into a single one, in a particular circumstance
+            // NB: the check for end1 is so that we only ignore one of the horizontal adjoiners, not both
+            var vwall = verticalWalls.length > 0 ? verticalWalls[0] : null;
+            if (!!vwall && !p.eq(vwall.end1) && !vwall.isConcave()) {
+                horizontalWalls = []; // fake it.
+            }
+
+            if (horizontalWalls.length > 0) inside = !inside;
+
+            // now count the tile if it's inside, AND if there are no overlapping tiles.
+            if (currentWalls.length === 0 && inside) {
+                enclosed.push(p);
+            }
+        }
+    }
+    return enclosed;
+}
+
+Room.refreshStats = function() {
+    var self = this;
+    this.stats.enclosedTiles.forEach(function(p) {
+        self.emit('release', {coords: p})
+    })
+
+    this.stats.closed = this.isClosed();
+    this.stats.enclosedTiles = this.getEnclosedTiles();
+    this.stats.length = this.totalLength();
+
+    this.stats.enclosedTiles.forEach(function(p) {
+        self.emit('enclose', {coords: p})
+    })
+}
+
+},{"./map":2,"./utils":6,"./wall":14}],5:[function(require,module,exports){
 var xy = window.XY;
 var Events = window.Events;
 module.exports = TileSelection = {};
@@ -830,13 +951,18 @@ Play.mapLayer = null;
 Play.cursorSprite = null;
 Play.lastClick = null; // in map coordinates
 
+// UI
+Play.message = null; // larger at top
+Play.message = null; // smaller at bottom
+
 Play.prototype = {
-    preload: function() {
-        Context.Room.init();
-        Context.Map.init();
-    },
+    preload: function() {},
 
     create: function () {
+        Context.Player.init();
+        Context.Room.init();
+        Context.Map.init();
+
         console.log('Game state: Play');
         game.stage.backgroundColor = '#ffff88';
         refreshMap();
@@ -848,10 +974,8 @@ Play.prototype = {
             blobs.push(this.createBlob(coords.x, coords.y));
         }
 
-        this.createBlob(350, 100);
-        this.createBlob(400, 100);
-        this.createBlob(450, 100);
-        this.createBlob(500, 100);
+        showInfo('Click to extend walls. Shift+click to complete a wall.')
+        showMessage('')
 
         // camera
         Play.cursorSprite = game.add.sprite(0, 0)
@@ -862,10 +986,16 @@ Play.prototype = {
 
         // literally don't know how else to get Phaser to detect a solo shift key.
         window.addEventListener('keydown', function(e) {
-            if (e.keyCode === Phaser.KeyCode.SHIFT) Player.shiftKey = true;
+            if (e.keyCode === Phaser.KeyCode.SHIFT) {
+                Player.shiftKey = true;
+                Player.justShifted = true;
+            }
         })
         window.addEventListener('keyup', function(e) {
-            if (e.keyCode === Phaser.KeyCode.SHIFT) Player.shiftKey = false;
+            if (e.keyCode === Phaser.KeyCode.SHIFT) {
+                Player.shiftKey = false;
+                Player.justShifted = true;
+            }
         })
     },
 
@@ -887,12 +1017,50 @@ Play.prototype = {
     update: function () {
         checkPlayerCursor();
         //checkCamera();
+
     },
     render: function () {
         //debugText();
     }
 };
 
+
+function clearInfo() {
+    if (Play.info) Play.info.destroy();
+}
+
+function showInfo(text) {
+    clearInfo();
+    Play.info = game.add.text(game.world.centerX, game.world.height - 20, text, {
+        font: '12px Arial',
+        fill: '#000',
+        align: 'center'
+    });
+    Play.info.anchor.set(0.5, 1);
+
+}
+
+function clearMessage() {
+    if (Play.message) Play.message.destroy();
+}
+
+function showMessage(text) {
+    clearMessage();
+    Play.message = game.add.text(game.world.centerX, 20, text, {
+        font: '16px Arial',
+        fill: '#000',
+        align: 'center'
+    });
+    Play.message.anchor.set(0.5, 0);
+}
+
+function showStats() {
+    showMessage([
+        'THE ROOM IS CLOSED',
+        'Area: ' +  Room.stats.enclosedTiles.length,
+        'Wall length: ' +  Room.stats.length
+    ].join(' - '));
+}
 
 function debugText() {
     var lines = [
@@ -974,6 +1142,9 @@ function onDown(pointer, event) {
     Play.lastClick = getCoordsFromEntity(game.input.activePointer);
     Context.Player.selects(Play.lastClick);
     refreshMap();
+    if (Player.done) {
+        showStats();
+    }
 }
 
 function getCoordsFromEntity(entity) {
@@ -1015,6 +1186,7 @@ WallSegment.prototype = {};
 
 WallSegment.prototype.isEnd = function() { return !this.connection1 || !this.connection2; }
 WallSegment.prototype.isFloating = function() { return !this.connection1 && !this.connection2; }
+WallSegment.prototype.isContinuation = function() { return !!this.connection1 && this.dir === this.connection1.dir; }
 
 WallSegment.prototype.contains = function(p1, p2) {
     if (!p2) {
@@ -1027,6 +1199,22 @@ WallSegment.prototype.contains = function(p1, p2) {
     if (this.dir === HORIZONTAL) {
         return p1.y === this.end1.y && p1.y === p2.y;
     }
+}
+
+WallSegment.prototype.isConcave = function() {
+    // Kind of weird terminology, sorry.
+    //  _               _
+    //   |_  = no       _| = yes
+    //
+
+    if (!this.connection1 || !this.connection2) console.log('nope:', this.connection1, this.connection2)
+    if (!this.connection1 || !this.connection2) return false;
+
+    var d1 = this.connection1.d();
+    var d2 = this.connection2.d();
+    //console.log(d1.eq(d2), [d1, d2].map(JSON.stringify));
+    //console.log(this.connection1.dir === this.connection2.dir, this.connection1.dir, this.connection2.dir)
+    return this.connection1.dir === this.connection2.dir && !d1.eq(d2);
 }
 
 WallSegment.prototype.refreshLength = function() {
@@ -1127,6 +1315,22 @@ WallSegment.prototype.tearDown = function(p1, p2) {
     return newSegment;
 }
 
+WallSegment.prototype.collapse = function() {
+    if (!this.isContinuation()) return;
+    var wall = this.connection1;
+    wall.end2 = this.end2;
+
+    if (!!this.connection2)
+        wall.connectTo(this.connection2);
+    else
+        wall.connection2 = null;
+
+    wall.refreshLength();
+    this.destroyed = true;
+    this.refreshLength();
+}
+
+
 
 WallSegment.prototype.destroy = function() {
     this.destroyed = true;
@@ -1201,6 +1405,9 @@ WallSegment.prototype.iterCoords = function(callback, ignoreEnd2) {
     }
 }
 
+// Unit vector 
+// E.g. if it's a horizontal wall, d() is either xy(1,0) or xy(-1,0),
+// depending on the ordering of end1 and end2
 WallSegment.prototype.d = function(p1, p2) {
     // Meh.
     if (!p1 || !p2) {

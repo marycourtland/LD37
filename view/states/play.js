@@ -23,13 +23,18 @@ Play.mapLayer = null;
 Play.cursorSprite = null;
 Play.lastClick = null; // in map coordinates
 
+// UI
+Play.message = null; // larger at top
+Play.message = null; // smaller at bottom
+
 Play.prototype = {
-    preload: function() {
-        Context.Room.init();
-        Context.Map.init();
-    },
+    preload: function() {},
 
     create: function () {
+        Context.Player.init();
+        Context.Room.init();
+        Context.Map.init();
+
         console.log('Game state: Play');
         game.stage.backgroundColor = '#ffff88';
         refreshMap();
@@ -41,10 +46,8 @@ Play.prototype = {
             blobs.push(this.createBlob(coords.x, coords.y));
         }
 
-        this.createBlob(350, 100);
-        this.createBlob(400, 100);
-        this.createBlob(450, 100);
-        this.createBlob(500, 100);
+        showInfo('Click to extend walls. Shift+click to complete a wall.')
+        showMessage('')
 
         // camera
         Play.cursorSprite = game.add.sprite(0, 0)
@@ -55,10 +58,16 @@ Play.prototype = {
 
         // literally don't know how else to get Phaser to detect a solo shift key.
         window.addEventListener('keydown', function(e) {
-            if (e.keyCode === Phaser.KeyCode.SHIFT) Player.shiftKey = true;
+            if (e.keyCode === Phaser.KeyCode.SHIFT) {
+                Player.shiftKey = true;
+                Player.justShifted = true;
+            }
         })
         window.addEventListener('keyup', function(e) {
-            if (e.keyCode === Phaser.KeyCode.SHIFT) Player.shiftKey = false;
+            if (e.keyCode === Phaser.KeyCode.SHIFT) {
+                Player.shiftKey = false;
+                Player.justShifted = true;
+            }
         })
     },
 
@@ -80,12 +89,50 @@ Play.prototype = {
     update: function () {
         checkPlayerCursor();
         //checkCamera();
+
     },
     render: function () {
         //debugText();
     }
 };
 
+
+function clearInfo() {
+    if (Play.info) Play.info.destroy();
+}
+
+function showInfo(text) {
+    clearInfo();
+    Play.info = game.add.text(game.world.centerX, game.world.height - 20, text, {
+        font: '12px Arial',
+        fill: '#000',
+        align: 'center'
+    });
+    Play.info.anchor.set(0.5, 1);
+
+}
+
+function clearMessage() {
+    if (Play.message) Play.message.destroy();
+}
+
+function showMessage(text) {
+    clearMessage();
+    Play.message = game.add.text(game.world.centerX, 20, text, {
+        font: '16px Arial',
+        fill: '#000',
+        align: 'center'
+    });
+    Play.message.anchor.set(0.5, 0);
+}
+
+function showStats() {
+    showMessage([
+        'THE ROOM IS CLOSED',
+        'Area: ' +  Room.stats.enclosedTiles.length,
+        'Wall length: ' +  Room.stats.length
+    ].join(' - '));
+}
 
 function debugText() {
     var lines = [
@@ -167,6 +214,9 @@ function onDown(pointer, event) {
     Play.lastClick = getCoordsFromEntity(game.input.activePointer);
     Context.Player.selects(Play.lastClick);
     refreshMap();
+    if (Player.done) {
+        showStats();
+    }
 }
 
 function getCoordsFromEntity(entity) {

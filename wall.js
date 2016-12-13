@@ -20,6 +20,7 @@ WallSegment.prototype = {};
 
 WallSegment.prototype.isEnd = function() { return !this.connection1 || !this.connection2; }
 WallSegment.prototype.isFloating = function() { return !this.connection1 && !this.connection2; }
+WallSegment.prototype.isContinuation = function() { return !!this.connection1 && this.dir === this.connection1.dir; }
 
 WallSegment.prototype.contains = function(p1, p2) {
     if (!p2) {
@@ -32,6 +33,22 @@ WallSegment.prototype.contains = function(p1, p2) {
     if (this.dir === HORIZONTAL) {
         return p1.y === this.end1.y && p1.y === p2.y;
     }
+}
+
+WallSegment.prototype.isConcave = function() {
+    // Kind of weird terminology, sorry.
+    //  _               _
+    //   |_  = no       _| = yes
+    //
+
+    if (!this.connection1 || !this.connection2) console.log('nope:', this.connection1, this.connection2)
+    if (!this.connection1 || !this.connection2) return false;
+
+    var d1 = this.connection1.d();
+    var d2 = this.connection2.d();
+    //console.log(d1.eq(d2), [d1, d2].map(JSON.stringify));
+    //console.log(this.connection1.dir === this.connection2.dir, this.connection1.dir, this.connection2.dir)
+    return this.connection1.dir === this.connection2.dir && !d1.eq(d2);
 }
 
 WallSegment.prototype.refreshLength = function() {
@@ -132,6 +149,22 @@ WallSegment.prototype.tearDown = function(p1, p2) {
     return newSegment;
 }
 
+WallSegment.prototype.collapse = function() {
+    if (!this.isContinuation()) return;
+    var wall = this.connection1;
+    wall.end2 = this.end2;
+
+    if (!!this.connection2)
+        wall.connectTo(this.connection2);
+    else
+        wall.connection2 = null;
+
+    wall.refreshLength();
+    this.destroyed = true;
+    this.refreshLength();
+}
+
+
 
 WallSegment.prototype.destroy = function() {
     this.destroyed = true;
@@ -206,6 +239,9 @@ WallSegment.prototype.iterCoords = function(callback, ignoreEnd2) {
     }
 }
 
+// Unit vector 
+// E.g. if it's a horizontal wall, d() is either xy(1,0) or xy(-1,0),
+// depending on the ordering of end1 and end2
 WallSegment.prototype.d = function(p1, p2) {
     // Meh.
     if (!p1 || !p2) {

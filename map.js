@@ -9,10 +9,10 @@ window.m = Map;
 // Tile keys
 var tiles = {
     BLANK: 0,
-    FLOOR: 1,
-    BROWN: 2,
-    DARK: 3,
-    SELECTED: 4,
+    GRAY: 1,
+    FLOOR: 2,
+    SELECTED: 3,
+    ORANGE: 4,
     WALL1100: 5,
     WALL0011: 6,
     WALL1010: 7,
@@ -77,6 +77,14 @@ Map.init = function() {
 
     Room.on('build', 'build', function(data) {
         self.set(data.coords.x, data.coords.y, tiles.WALL);
+    })
+
+    Room.on('enclose', 'enclose', function(data) {
+        self.set(data.coords.x, data.coords.y, tiles.FLOOR);
+    })
+
+    Room.on('release', 'release', function(data) {
+        self.set(data.coords.x, data.coords.y, tiles.BLANK);
     })
 
     TileSelection.on('select', 'select', function(data) {

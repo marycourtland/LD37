@@ -5,23 +5,31 @@ var xy = window.XY;
 module.exports = Player = {};
 window.p = Player;
 
-// circumvent phaser to get shift+click to work
-Player.shiftKey = false;
+Player.init = function() {
+    Player.done = false;
+    Player.enclosedTiles = [];
 
-// Tile selection
-Player.hoveredCoords = null;
-Player.selectedCoords = null;
-Player.selectedTileIndex = null;
+    // circumvent phaser to get shift+click to work
+    Player.shiftKey = false;
+    Player.justShifted = false;
+
+    // Tile selection
+    Player.hoveredCoords = null;
+    Player.selectedCoords = null;
+    Player.selectedTileIndex = null;
+}
 
 Player.hovers = function(coords) {
-    if (xy(coords).eq(this.hoveredCoords)) return; 
+    if (!this.justShifted && xy(coords).eq(this.hoveredCoords)) return; 
+    this.justShifted = false;
     this.hoveredCoords = coords;
     if (this.mode) this.modes[this.mode].onTileHover(coords)
 }
 
 Player.selects = function(coords) {
-    if (xy(coords).eq(this.selectedCoords)) return; 
-
+    if (!this.justShifted && xy(coords).eq(this.selectedCoords)) return; 
+    this.justShifted = false;
+    this.selectedCoords = coords;
     if (this.mode) this.modes[this.mode].onTileSelect(coords)
 }
 
@@ -71,7 +79,6 @@ Player.modes.teardown = {
         // DO NOT CALL UNLESS ACTUALLY FINISHED.
         console.assert(this.endpoints.length === 2);
         Room.iterCoords(this.endpoints, function(p) {
-            console.log('selecting:', p)
             TileSelection.select(p);
 
         })
@@ -104,7 +111,7 @@ Player.modes.confirmTeardown = {
 Player.modes.build = {
     hoveredTile: null,
     targetTile: null,
-    wallCompletion: null,
+    wallCompletion: null, 
 
     start: function() {
     
@@ -113,24 +120,6 @@ Player.modes.build = {
         if (!!this.hoveredTile) TileSelection.deselect(this.hoveredTile);
         if (!!this.targetTile) TileSelection.deselect(this.targetTile);
 
-        if (Player.shiftKey) {
-            // SPECIAL CASE: Offer for the player to complete the wall
-            wallCompletions = Room.getContainingAlignedEnds(coords);
-            if (wallCompletions.length > 0) {
-                this.wallCompletion = this.wallCompletions[0] // if there are multiple walls... then meh.
-                this.wallCompletion.iterCoords(function(p) {
-                    TileSelection.select(p);
-                
-                })
-
-            }
-            return;
-        }
-        else if (!!this.wallCompletion) {
-            this.wallCompletion.iterCoords(function(p) { TileSelection.deselect(p); })
-            this.wallCompletion = null;
-        }
-
         var nearestEnd = Room.getNearestAlignedEnd(coords);
         if (!nearestEnd) {
             this.targetTile = null;
@@ -138,40 +127,77 @@ Player.modes.build = {
         }
         this.hoveredTile = coords;
         this.targetTile = nearestEnd;
+
+        if (Player.shiftKey) {
+            // SPECIAL CASE: Offer for the player to complete the wall
+            wallCompletions = Room.getContainingAlignedEnds(coords);
+            if (wallCompletions.length > 0) {
+                this.wallCompletion = wallCompletions[0] // if there are multiple walls... then meh.
+                var coords = [this.wallCompletion[0].end, this.wallCompletion[1].end]
+                Room.iterCoords(coords, function(p) {
+                    TileSelection.select(p);
+                })
+            }
+            return;
+        }
+        else if (!!this.wallCompletion) {
+            var coords = [this.wallCompletion[0].end, this.wallCompletion[1].end]
+            Room.iterCoords(coords, function(p) { TileSelection.deselect(p); })
+            this.wallCompletion = null;
+        }
+
         TileSelection.select(this.targetTile);
         TileSelection.select(this.hoveredTile);
     },
     onTileSelect: function(coords) {
-        if (!this.targetTile) return;
-        TileSelection.select(coords);
+        if (Player.shiftKey && !!this.wallCompletion) {
+            Player.modes.confirmBuild.tile1 = this.wallCompletion[0].end;
+            Player.modes.confirmBuild.tile2 = this.wallCompletion[1].end;
+            Player.modes.confirmBuild.wallCompletion = this.wallCompletion;
+        }
+        else {
+            if (!this.targetTile) return;
+            TileSelection.select(coords);
+            Player.modes.confirmBuild.tile1 = this.targetTile;
+            Player.modes.confirmBuild.tile2 = this.hoveredTile;
+            Player.modes.confirmBuild.wallCompletion = null;
+        }
         
-        Player.modes.confirmBuild.tile1 = this.targetTile;
-        Player.modes.confirmBuild.tile2 = this.hoveredTile;
         Player.setMode('confirmBuild')
     },
     cleanup: function() {
         this.hoveredTile = null;
         this.targetTile = null;
-        this.wallCompletions = [];
+        this.wallCompletion = null;
     }
 }
 
 Player.modes.confirmBuild = {
     tile1: null,
     tile2: null,
+    wallCompletion: null,
     start: function() {
         // TODO: confirm
         this.doItNow();
     },
     doItNow: function() {
-        Room.build(this.tile1, this.tile2);
-        TileSelection.deselect(this.tile1);
-        TileSelection.deselect(this.tile2);
+        Room.build(this.tile1, this.tile2, this.wallCompletion);
+        TileSelection.deselectAll();
+
+        // Check for closed room 
+        if (Room.isClosed()) {
+            Player.done = true;
+            //Room.stats.enclosedTiles.forEach(function(t) { TileSelection.select(t); });
+        }
+
         Player.setMode('build');
+
+
     },
     cleanup: function() {
         this.tile1 = null;
         this.tile2 = null;
+        this.wallCompletion = null;
     }
 
 }
